@@ -1,150 +1,275 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import type { FormEvent } from 'react'
+import type { Session, User } from '@supabase/supabase-js'
+import { supabase } from './lib/supabase'
 
-type IconName = 'grid' | 'receipt' | 'cart' | 'box' | 'chart' | 'users' | 'settings' | 'search' | 'bell' | 'chevron' | 'plus' | 'arrow' | 'dots' | 'wallet' | 'clock' | 'close' | 'calendar' | 'bank' | 'file' | 'menu' | 'download' | 'filter' | 'spark'
-type Transaction = { name: string; category: string; date: string; amount: number; kind: 'in' | 'out'; initials: string; color: string }
-type RecordRow = { name: string; detail: string; date: string; amount: string; status: string; tone: string }
-type ModuleName = 'Ringkasan' | 'Transaksi' | 'Penjualan' | 'Pembelian' | 'Persediaan' | 'Kontak' | 'Laporan' | 'Kas & Bank' | 'Pengaturan'
+type IconName = 'grid' | 'receipt' | 'users' | 'settings' | 'search' | 'bell' | 'chevron' | 'plus' | 'arrow' | 'dots' | 'wallet' | 'clock' | 'close' | 'calendar' | 'bank' | 'menu' | 'filter' | 'logout'
+type ModuleName = 'Ringkasan' | 'Transaksi' | 'Kontak' | 'Pengaturan'
+type Organization = { id: string; name: string; currency: string }
+type LedgerEntry = { id: string; description: string; category: string; type: 'income' | 'expense'; amount: number; transaction_date: string; created_at: string; contact_id: string | null }
+type Contact = { id: string; name: string; type: 'customer' | 'supplier' | 'both'; email: string | null; phone: string | null; created_at: string }
+type IconProps = { name: IconName; size?: number }
 
 const iconPaths: Record<IconName, string> = {
-  grid: 'M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z', receipt: 'M5 3h14v18l-3-2-4 2-4-2-3 2zM8 8h8M8 12h8M8 16h4',
-  cart: 'M3 4h2l2.2 10.2a2 2 0 0 0 2 1.6h7.6a2 2 0 0 0 1.9-1.4L21 8H6M10 20h.01M17 20h.01', box: 'm12 3 9 5-9 5-9-5 9-5ZM3 8v9l9 5 9-5V8M12 13v9', chart: 'M4 19V5M4 19h17M8 15l4-4 3 2 5-7',
-  users: 'M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M10 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM20 8v6M23 11h-6', settings: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8ZM19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-1.8 3.1-.2-.1a1.7 1.7 0 0 0-1.9.1l-.2.1h-3.6l-.1-.2a1.7 1.7 0 0 0-1.6-1.1 1.7 1.7 0 0 0-1.1.4l-.2.1-3.1-1.8.1-.2a1.7 1.7 0 0 0-.1-1.9l-.1-.2v-3.6l.2-.1a1.7 1.7 0 0 0 .7-2.7l-.1-.2 1.8-3.1.2.1a1.7 1.7 0 0 0 1.9-.1l.2-.1h3.6l.1.2a1.7 1.7 0 0 0 2.7.7l.2-.1 3.1 1.8-.1.2a1.7 1.7 0 0 0 .1 1.9l.1.2v3.6l-.2.1a1.7 1.7 0 0 0-.7 1.1Z',
-  search: 'm20 20-4.5-4.5M18 10.5a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z', bell: 'M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4', chevron: 'm9 18 6-6-6-6', plus: 'M12 5v14M5 12h14', arrow: 'M7 17 17 7M7 7h10v10', dots: 'M5 12h.01M12 12h.01M19 12h.01',
-  wallet: 'M4 6.5A2.5 2.5 0 0 1 6.5 4H20v16H6.5A2.5 2.5 0 0 1 4 17.5zM4 8h16M16 13h.01', clock: 'M12 8v4l2.5 1.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z', close: 'M18 6 6 18M6 6l12 12', calendar: 'M8 3v4M16 3v4M4 9h16M5 5h14a1 1 0 0 1 1 1v13H4V6a1 1 0 0 1 1-1Z',
-  bank: 'M3 10h18M5 10v8m5-8v8m4-8v8m5-8v8M3 21h18M12 3 3 8h18z', file: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h8', menu: 'M4 6h16M4 12h16M4 18h16', download: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3', filter: 'M4 6h16M7 12h10m-7 6h4', spark: 'm12 3 1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3ZM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8L19 16Z',
+  grid: 'M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z', receipt: 'M5 3h14v18l-3-2-4 2-4-2-3 2zM8 8h8M8 12h8M8 16h4', users: 'M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M10 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM20 8v6M23 11h-6', settings: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8ZM19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-1.8 3.1-.2-.1a1.7 1.7 0 0 0-1.9.1l-.2.1h-3.6l-.1-.2a1.7 1.7 0 0 0-1.6-1.1 1.7 1.7 0 0 0-1.1.4l-.2.1-3.1-1.8.1-.2a1.7 1.7 0 0 0-.1-1.9l-.1-.2v-3.6l.2-.1a1.7 1.7 0 0 0 .7-2.7l-.1-.2 1.8-3.1.2.1a1.7 1.7 0 0 0 1.9-.1l.2-.1h3.6l.1.2a1.7 1.7 0 0 0 2.7.7l.2-.1 3.1 1.8-.1.2a1.7 1.7 0 0 0 .1 1.9l.1.2v3.6l-.2.1a1.7 1.7 0 0 0-.7 1.1Z', search: 'm20 20-4.5-4.5M18 10.5a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z', bell: 'M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4', chevron: 'm9 18 6-6-6-6', plus: 'M12 5v14M5 12h14', arrow: 'M7 17 17 7M7 7h10v10', dots: 'M5 12h.01M12 12h.01M19 12h.01', wallet: 'M4 6.5A2.5 2.5 0 0 1 6.5 4H20v16H6.5A2.5 2.5 0 0 1 4 17.5zM4 8h16M16 13h.01', clock: 'M12 8v4l2.5 1.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z', close: 'M18 6 6 18M6 6l12 12', calendar: 'M8 3v4M16 3v4M4 9h16M5 5h14a1 1 0 0 1 1 1v13H4V6a1 1 0 0 1 1-1Z', bank: 'M3 10h18M5 10v8m5-8v8m4-8v8m5-8v8M3 21h18M12 3 3 8h18z', menu: 'M4 6h16M4 12h16M4 18h16', filter: 'M4 6h16M7 12h10m-7 6h4', logout: 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4m7 14 5-5-5-5m5 5H9',
 }
 
-function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
+function Icon({ name, size = 18 }: IconProps) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={iconPaths[name]} /></svg>
 }
 
-const initialTransactions: Transaction[] = [
-  { name: 'PT Sinar Pagi', category: 'Pelunasan invoice INV-0241', date: 'Hari ini, 10:42', amount: 12500000, kind: 'in', initials: 'SP', color: 'peach' },
-  { name: 'Kopi Tengah Kota', category: 'Pembelian bahan baku', date: 'Hari ini, 09:18', amount: 2480000, kind: 'out', initials: 'KT', color: 'mint' },
-  { name: 'Studio Karsa', category: 'Pembayaran invoice INV-0238', date: 'Kemarin, 16:25', amount: 8750000, kind: 'in', initials: 'SK', color: 'lavender' },
-  { name: 'Ruang Rasa Supply', category: 'Tagihan pemasok', date: 'Kemarin, 14:06', amount: 3950000, kind: 'out', initials: 'RR', color: 'yellow' },
-]
-
-const navGroups: { label: string; items: { name: ModuleName; icon: IconName }[] }[] = [
-  { label: 'RUANG KERJA', items: [{ name: 'Ringkasan', icon: 'grid' }, { name: 'Transaksi', icon: 'receipt' }, { name: 'Kas & Bank', icon: 'bank' }] },
-  { label: 'OPERASIONAL', items: [{ name: 'Penjualan', icon: 'cart' }, { name: 'Pembelian', icon: 'box' }, { name: 'Persediaan', icon: 'box' }, { name: 'Kontak', icon: 'users' }] },
-  { label: 'ANALISIS', items: [{ name: 'Laporan', icon: 'chart' }] },
-]
-
-const moduleData: Partial<Record<ModuleName, { description: string; action: string; columns: string[]; rows: RecordRow[]; stats: { label: string; value: string; note: string }[] }>> = {
-  Transaksi: { description: 'Pantau catatan uang masuk dan keluar di satu tempat.', action: 'Catat transaksi', columns: ['KETERANGAN', 'KATEGORI', 'TANGGAL', 'NOMINAL', 'STATUS'], stats: [{ label: 'Total transaksi', value: '128', note: 'periode ini' }, { label: 'Pemasukan', value: 'Rp 86,4 jt', note: 'data contoh' }, { label: 'Pengeluaran', value: 'Rp 32,1 jt', note: 'data contoh' }], rows: [
-    { name: 'PT Sinar Pagi', detail: 'Pelunasan invoice · INV-0241', date: '26 Okt 2026', amount: '+ Rp 12.500.000', status: 'Tercatat', tone: 'green' }, { name: 'Kopi Tengah Kota', detail: 'Pembelian bahan baku', date: '26 Okt 2026', amount: '− Rp 2.480.000', status: 'Tercatat', tone: 'green' }, { name: 'Studio Karsa', detail: 'Pembayaran invoice · INV-0238', date: '25 Okt 2026', amount: '+ Rp 8.750.000', status: 'Tercatat', tone: 'green' }, { name: 'Ruang Rasa Supply', detail: 'Tagihan pemasok', date: '25 Okt 2026', amount: '− Rp 3.950.000', status: 'Tercatat', tone: 'green' },
-  ] },
-  Penjualan: { description: 'Kelola invoice pelanggan dan pantau status penagihan.', action: 'Buat invoice', columns: ['PELANGGAN', 'NOMOR', 'TANGGAL', 'TOTAL', 'STATUS'], stats: [{ label: 'Penjualan bulan ini', value: 'Rp 86,4 jt', note: 'data contoh' }, { label: 'Belum dibayar', value: 'Rp 18,7 jt', note: '4 invoice' }, { label: 'Jatuh tempo', value: '2 invoice', note: 'perlu ditinjau' }], rows: [
-    { name: 'PT Sinar Pagi', detail: 'Jasa branding · INV-0241', date: '26 Okt 2026', amount: 'Rp 12.500.000', status: 'Belum dibayar', tone: 'amber' }, { name: 'Studio Karsa', detail: 'Paket desain · INV-0238', date: '24 Okt 2026', amount: 'Rp 8.750.000', status: 'Lunas', tone: 'green' }, { name: 'Ruang Rasa', detail: 'Konsultasi kreatif · INV-0236', date: '22 Okt 2026', amount: 'Rp 6.200.000', status: 'Jatuh tempo', tone: 'red' }, { name: 'Teras Living', detail: 'Produksi konten · INV-0235', date: '20 Okt 2026', amount: 'Rp 4.800.000', status: 'Lunas', tone: 'green' },
-  ] },
-  Pembelian: { description: 'Catat tagihan vendor serta pengeluaran operasional.', action: 'Catat pembelian', columns: ['PEMASOK', 'KETERANGAN', 'JATUH TEMPO', 'TOTAL', 'STATUS'], stats: [{ label: 'Pembelian bulan ini', value: 'Rp 32,1 jt', note: 'data contoh' }, { label: 'Tagihan terbuka', value: 'Rp 9,4 jt', note: '3 tagihan' }, { label: 'Jatuh tempo pekan ini', value: 'Rp 4,2 jt', note: 'perlu ditinjau' }], rows: [
-    { name: 'Ruang Rasa Supply', detail: 'Bahan baku · BILL-0198', date: '28 Okt 2026', amount: 'Rp 3.950.000', status: 'Belum dibayar', tone: 'amber' }, { name: 'Kreasi Digital', detail: 'Langganan perangkat · BILL-0197', date: '29 Okt 2026', amount: 'Rp 1.250.000', status: 'Menunggu', tone: 'blue' }, { name: 'Kopi Tengah Kota', detail: 'Biji kopi · BILL-0194', date: '24 Okt 2026', amount: 'Rp 2.480.000', status: 'Lunas', tone: 'green' }, { name: 'Lintas Kirim', detail: 'Biaya pengiriman · BILL-0192', date: '22 Okt 2026', amount: 'Rp 870.000', status: 'Lunas', tone: 'green' },
-  ] },
-  Persediaan: { description: 'Lihat daftar barang dan jumlah stok contoh yang tersedia.', action: 'Tambah barang', columns: ['BARANG', 'SKU', 'KATEGORI', 'STOK', 'STATUS'], stats: [{ label: 'Jenis barang', value: '24', note: 'data contoh' }, { label: 'Stok tersedia', value: '186 unit', note: 'data contoh' }, { label: 'Stok menipis', value: '3 barang', note: 'perlu ditinjau' }], rows: [
-    { name: 'Kopi Arabika 1 kg', detail: 'Bahan baku', date: 'SKU-AR01', amount: '42 unit', status: 'Tersedia', tone: 'green' }, { name: 'Gelas Kertas 12 oz', detail: 'Kemasan', date: 'SKU-GK12', amount: '8 unit', status: 'Stok menipis', tone: 'amber' }, { name: 'Kantong Kopi 250 g', detail: 'Kemasan', date: 'SKU-KK25', amount: '64 unit', status: 'Tersedia', tone: 'green' }, { name: 'Sirup Gula Aren', detail: 'Bahan baku', date: 'SKU-SGA1', amount: '3 botol', status: 'Stok menipis', tone: 'red' },
-  ] },
-  Kontak: { description: 'Daftar pelanggan dan pemasok untuk operasional bisnis.', action: 'Tambah kontak', columns: ['NAMA KONTAK', 'JENIS', 'EMAIL', 'TELEPON', 'STATUS'], stats: [{ label: 'Total kontak', value: '42', note: 'data contoh' }, { label: 'Pelanggan', value: '28', note: 'data contoh' }, { label: 'Pemasok', value: '14', note: 'data contoh' }], rows: [
-    { name: 'PT Sinar Pagi', detail: 'Pelanggan', date: 'finance@sinarpagi.id', amount: '021 555 0142', status: 'Aktif', tone: 'green' }, { name: 'Studio Karsa', detail: 'Pelanggan', date: 'halo@studiokarsa.id', amount: '0812 3456 7890', status: 'Aktif', tone: 'green' }, { name: 'Ruang Rasa Supply', detail: 'Pemasok', date: 'order@ruangrasa.id', amount: '021 555 0188', status: 'Aktif', tone: 'green' }, { name: 'Kreasi Digital', detail: 'Pemasok', date: 'support@kreasidigital.id', amount: '0811 2233 4455', status: 'Aktif', tone: 'green' },
-  ] },
-  'Kas & Bank': { description: 'Ringkasan rekening kas dan bank untuk data demo.', action: 'Catat transfer', columns: ['REKENING', 'JENIS', 'PEMILIK', 'SALDO CONTOH', 'STATUS'], stats: [{ label: 'Total saldo contoh', value: 'Rp 248,6 jt', note: 'bukan data nyata' }, { label: 'Rekening', value: '3', note: 'data contoh' }, { label: 'Transaksi hari ini', value: '8', note: 'data contoh' }], rows: [
-    { name: 'Bank Nusantara · 2841', detail: 'Rekening operasional', date: 'Bank', amount: 'Rp 186.450.000', status: 'Aktif', tone: 'green' }, { name: 'Bank Karya · 1092', detail: 'Rekening cadangan', date: 'Bank', amount: 'Rp 52.200.000', status: 'Aktif', tone: 'green' }, { name: 'Kas kecil', detail: 'Kas kantor', date: 'Kas', amount: 'Rp 10.000.000', status: 'Aktif', tone: 'green' },
-  ] },
-  Laporan: { description: 'Jelajahi ringkasan laporan dari data contoh pada dashboard.', action: 'Unduh ringkasan', columns: ['NAMA LAPORAN', 'PERIODE', 'RINGKASAN', 'DIPERBARUI', 'AKSI'], stats: [{ label: 'Laporan tersedia', value: '6', note: 'data contoh' }, { label: 'Periode aktif', value: 'Oktober', note: '2026' }, { label: 'Status data', value: 'Demo', note: 'belum diverifikasi' }], rows: [
-    { name: 'Ringkasan arus kas', detail: 'Rekap uang masuk & keluar', date: 'Okt 2026', amount: 'Data demo', status: 'Tersedia', tone: 'blue' }, { name: 'Penjualan per pelanggan', detail: 'Rekap invoice dan pelanggan', date: 'Okt 2026', amount: 'Data demo', status: 'Tersedia', tone: 'blue' }, { name: 'Pengeluaran per kategori', detail: 'Rekap biaya operasional', date: 'Okt 2026', amount: 'Data demo', status: 'Tersedia', tone: 'blue' }, { name: 'Ringkasan persediaan', detail: 'Daftar stok barang contoh', date: 'Okt 2026', amount: 'Data demo', status: 'Tersedia', tone: 'blue' },
-  ] },
-  Pengaturan: { description: 'Preferensi workspace dan informasi perusahaan contoh.', action: 'Simpan pengaturan', columns: ['PREFERENSI', 'KETERANGAN', 'PENGATURAN', 'STATUS', ''], stats: [{ label: 'Nama bisnis', value: 'Nusa Kreatif', note: 'contoh' }, { label: 'Mata uang', value: 'IDR', note: 'Rupiah Indonesia' }, { label: 'Tahun buku', value: 'Januari–Desember', note: 'contoh' }], rows: [
-    { name: 'Profil perusahaan', detail: 'Nama, alamat, dan info bisnis', date: 'Workspace', amount: 'Nusa Kreatif', status: 'Contoh', tone: 'blue' }, { name: 'Preferensi mata uang', detail: 'Format nominal dan bahasa', date: 'Lokal', amount: 'IDR · Indonesia', status: 'Aktif', tone: 'green' }, { name: 'Pengguna & akses', detail: 'Administrator workspace', date: '1 pengguna', amount: 'Aditya Darma', status: 'Aktif', tone: 'green' },
-  ] },
-}
-
-const rupiah = (value: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(value)
-
-function CashflowChart() {
-  return <div className="chart-wrap"><div className="chart-y"><span>40 jt</span><span>30 jt</span><span>20 jt</span><span>10 jt</span><span>0</span></div><svg className="chart" viewBox="0 0 660 220" preserveAspectRatio="none" role="img" aria-label="Grafik pemasukan dan pengeluaran enam bulan terakhir"><defs><linearGradient id="incomeFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#2f8068" stopOpacity=".17"/><stop offset="100%" stopColor="#2f8068" stopOpacity="0"/></linearGradient></defs>{[15, 61, 107, 153, 199].map(y => <line key={y} x1="0" y1={y} x2="660" y2={y} className="grid-line"/>)}<path d="M0 139 C38 132 55 100 110 112 S175 85 220 98 S285 64 330 81 S397 38 440 58 S508 36 550 46 S613 17 660 25 L660 199 L0 199Z" fill="url(#incomeFill)"/><path d="M0 139 C38 132 55 100 110 112 S175 85 220 98 S285 64 330 81 S397 38 440 58 S508 36 550 46 S613 17 660 25" className="income-line"/><path d="M0 172 C42 162 68 178 110 160 S180 149 220 165 S288 142 330 151 S397 126 440 144 S505 111 550 130 S615 120 660 105" className="expense-line"/><circle cx="660" cy="25" r="4.5" className="income-dot"/><circle cx="660" cy="105" r="4.5" className="expense-dot"/></svg><div className="chart-x"><span>Mei</span><span>Jun</span><span>Jul</span><span>Agu</span><span>Sep</span><span>Okt</span></div></div>
-}
+const formatCurrency = (value: number, currency = 'IDR') => new Intl.NumberFormat('id-ID', { style: 'currency', currency, maximumFractionDigits: 0 }).format(value)
+const formatDate = (value: string) => new Intl.DateTimeFormat('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(`${value}T00:00:00`))
+const localDate = (date = new Date()) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+const today = () => localDate()
 
 function App() {
+  const [session, setSession] = useState<Session | null>(null)
+  const [authReady, setAuthReady] = useState(false)
+  const [organization, setOrganization] = useState<Organization | null>(null)
+  const [transactions, setTransactions] = useState<LedgerEntry[]>([])
+  const [contacts, setContacts] = useState<Contact[]>([])
   const [active, setActive] = useState<ModuleName>('Ringkasan')
-  const [transactions, setTransactions] = useState(initialTransactions)
   const [search, setSearch] = useState('')
-  const [modal, setModal] = useState<string | null>(null)
-  const [toast, setToast] = useState('')
-  const [amount, setAmount] = useState('')
-  const [description, setDescription] = useState('')
+  const [modal, setModal] = useState<'transaction' | 'contact' | null>(null)
   const [mobileNav, setMobileNav] = useState(false)
-  const filteredTransactions = useMemo(() => transactions.filter(item => `${item.name} ${item.category}`.toLowerCase().includes(search.toLowerCase())), [transactions, search])
-  const showToast = (message: string) => { setToast(message); window.setTimeout(() => setToast(''), 2800) }
-  const currentModule = moduleData[active]
+  const [loading, setLoading] = useState(false)
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login')
+  const [authEmail, setAuthEmail] = useState('')
+  const [authPassword, setAuthPassword] = useState('')
+  const [organizationName, setOrganizationName] = useState('')
 
-  function openAction(action: string) {
-    if (action === 'Unduh ringkasan') { showToast('Ringkasan demo siap ditinjau; fitur unduh belum tersedia.'); return }
-    if (action === 'Simpan pengaturan') { showToast('Pengaturan contoh berhasil diperbarui.'); return }
-    setModal(action)
+  useEffect(() => {
+    if (!supabase) { setAuthReady(true); return }
+    supabase.auth.getSession().then(({ data, error: sessionError }) => {
+      if (sessionError) setError(sessionError.message)
+      setSession(data.session)
+      setAuthReady(true)
+    })
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession)
+      setOrganization(null)
+      setTransactions([])
+      setContacts([])
+      setError('')
+    })
+    return () => subscription.unsubscribe()
+  }, [])
+
+  useEffect(() => {
+    if (!supabase || !session?.user) return
+    const request = { cancelled: false }
+    async function loadWorkspace(user: User) {
+      setLoading(true)
+      setError('')
+      const { data: org, error: orgError } = await supabase!.from('organizations').select('id,name,currency').eq('owner_id', user.id).maybeSingle()
+      if (request.cancelled) return
+      if (orgError) { setError(databaseError(orgError.message)); setLoading(false); return }
+      setOrganization(org as Organization | null)
+      if (org) await loadWorkspaceData(org.id, request)
+      else setLoading(false)
+    }
+    void loadWorkspace(session.user)
+    return () => { request.cancelled = true }
+  }, [session?.user?.id])
+
+  async function loadWorkspaceData(organizationId: string, request?: { cancelled: boolean }) {
+    if (!supabase) return
+    setLoading(true)
+    const [transactionResult, contactResult] = await Promise.all([
+      supabase.from('transactions').select('id,description,category,type,amount,transaction_date,created_at,contact_id').eq('organization_id', organizationId).order('transaction_date', { ascending: false }).order('created_at', { ascending: false }),
+      supabase.from('contacts').select('id,name,type,email,phone,created_at').eq('organization_id', organizationId).order('name'),
+    ])
+    if (request?.cancelled) return
+    if (transactionResult.error) setError(databaseError(transactionResult.error.message))
+    else setTransactions((transactionResult.data ?? []) as LedgerEntry[])
+    if (contactResult.error) setError(databaseError(contactResult.error.message))
+    else setContacts((contactResult.data ?? []) as Contact[])
+    setLoading(false)
   }
 
-  function submitEntry(event: React.FormEvent<HTMLFormElement>) {
+  const visibleTransactions = useMemo(() => transactions.filter(row => `${row.description} ${row.category}`.toLowerCase().includes(search.toLowerCase())), [transactions, search])
+  const visibleContacts = useMemo(() => contacts.filter(row => `${row.name} ${row.email ?? ''} ${row.phone ?? ''} ${row.type}`.toLowerCase().includes(search.toLowerCase())), [contacts, search])
+  const monthPrefix = localDate().slice(0, 7)
+  const monthTransactions = transactions.filter(row => row.transaction_date.startsWith(monthPrefix))
+  const income = monthTransactions.filter(row => row.type === 'income').reduce((sum, row) => sum + Number(row.amount), 0)
+  const expense = monthTransactions.filter(row => row.type === 'expense').reduce((sum, row) => sum + Number(row.amount), 0)
+  const cashNet = transactions.reduce((sum, row) => sum + (row.type === 'income' ? Number(row.amount) : -Number(row.amount)), 0)
+
+  async function submitAuth(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!modal) return
-    const name = description.trim()
-    if (!name) return
-    if (modal === 'Catat pemasukan' || modal === 'Catat pengeluaran') {
-      const numericAmount = Number(amount)
-      if (!numericAmount) return
-      const isIncome = modal === 'Catat pemasukan'
-      setTransactions([{ name, category: isIncome ? 'Pemasukan baru' : 'Pengeluaran baru', date: 'Baru saja', amount: numericAmount, kind: isIncome ? 'in' : 'out', initials: name.slice(0, 2).toUpperCase(), color: 'mint' }, ...transactions])
-      showToast(`${modal} ditambahkan ke daftar demo`)
-    } else showToast(`${modal} disiapkan di workspace demo`)
-    setModal(null); setDescription(''); setAmount('')
+    if (!supabase) return
+    setLoading(true); setError(''); setMessage('')
+    const result = authMode === 'signup'
+      ? await supabase.auth.signUp({ email: authEmail, password: authPassword })
+      : await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword })
+    setLoading(false)
+    if (result.error) { setError(result.error.message); return }
+    if (authMode === 'signup' && !result.data.session) setMessage('Periksa email untuk mengonfirmasi akun, lalu masuk kembali.')
   }
+
+  async function createOrganization(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!supabase || !session?.user || !organizationName.trim()) return
+    setLoading(true); setError('')
+    const { data, error: insertError } = await supabase.from('organizations').insert({ name: organizationName.trim(), owner_id: session.user.id }).select('id,name,currency').single()
+    setLoading(false)
+    if (insertError) { setError(databaseError(insertError.message)); return }
+    setOrganization(data as Organization)
+    setTransactions([]); setContacts([])
+    setMessage('Workspace berhasil dibuat.')
+  }
+
+  async function saveTransaction(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!supabase || !organization || !session?.user) return
+    const form = new FormData(event.currentTarget)
+    const amountValue = Number(form.get('amount'))
+    if (!Number.isSafeInteger(amountValue) || amountValue <= 0) { setError('Nominal harus berupa bilangan bulat yang lebih besar dari nol.'); return }
+    setLoading(true); setError('')
+    const { error: insertError } = await supabase.from('transactions').insert({ organization_id: organization.id, created_by: session.user.id, description: String(form.get('description')).trim(), category: String(form.get('category')).trim() || 'Umum', type: form.get('type'), amount: amountValue, transaction_date: String(form.get('date')) || today() })
+    setLoading(false)
+    if (insertError) { setError(databaseError(insertError.message)); return }
+    setModal(null); setMessage('Transaksi berhasil disimpan.'); await loadWorkspaceData(organization.id)
+  }
+
+  async function saveContact(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!supabase || !organization) return
+    const form = new FormData(event.currentTarget)
+    setLoading(true); setError('')
+    const { error: insertError } = await supabase.from('contacts').insert({ organization_id: organization.id, name: String(form.get('name')).trim(), type: form.get('type'), email: String(form.get('email')).trim() || null, phone: String(form.get('phone')).trim() || null })
+    setLoading(false)
+    if (insertError) { setError(databaseError(insertError.message)); return }
+    setModal(null); setMessage('Kontak berhasil disimpan.'); await loadWorkspaceData(organization.id)
+  }
+
+  async function deleteTransaction(id: string) {
+    if (!supabase || !organization || !window.confirm('Hapus transaksi ini? Tindakan ini tidak dapat dibatalkan.')) return
+    const { error: deleteError } = await supabase.from('transactions').delete().eq('id', id).eq('organization_id', organization.id)
+    if (deleteError) { setError(databaseError(deleteError.message)); return }
+    setMessage('Transaksi dihapus.'); await loadWorkspaceData(organization.id)
+  }
+
+  async function deleteContact(id: string) {
+    if (!supabase || !organization || !window.confirm('Hapus kontak ini?')) return
+    const { error: deleteError } = await supabase.from('contacts').delete().eq('id', id).eq('organization_id', organization.id)
+    if (deleteError) { setError(databaseError(deleteError.message)); return }
+    setMessage('Kontak dihapus.'); await loadWorkspaceData(organization.id)
+  }
+
+  async function signOut() {
+    if (!supabase) return
+    const { error: signOutError } = await supabase.auth.signOut()
+    if (signOutError) setError(signOutError.message)
+  }
+
+  if (!authReady) return <FullPageState title="Memuat Arunika" description="Menyiapkan sesi akun Anda…" />
+  if (!supabase) return <SetupScreen />
+  if (!session) return <AuthScreen mode={authMode} setMode={setAuthMode} email={authEmail} setEmail={setAuthEmail} password={authPassword} setPassword={setAuthPassword} onSubmit={submitAuth} loading={loading} error={error} message={message} />
+  if (!organization) return <OrganizationScreen name={organizationName} setName={setOrganizationName} onSubmit={createOrganization} email={session.user.email ?? ''} loading={loading} error={error} onSignOut={signOut} />
 
   return <div className="app-shell">
     <aside className={`sidebar ${mobileNav ? 'sidebar-open' : ''}`}>
       <div className="brand"><div className="brand-mark"><span/><span/><span/></div><span>arunika<span className="brand-period">.</span></span><button className="mobile-close icon-button" aria-label="Tutup navigasi" onClick={() => setMobileNav(false)}><Icon name="close"/></button></div>
-      <button className="company-switch" onClick={() => showToast('Workspace contoh: Nusa Kreatif')}><div className="company-avatar">N</div><div className="company-copy"><strong>Nusa Kreatif</strong><small>Bisnis utama · Demo</small></div><span className="switch-chevron"><Icon name="chevron" size={15}/></span></button>
-      <nav className="side-nav" aria-label="Navigasi utama">{navGroups.map(group => <div className="nav-group" key={group.label}><p className="nav-label">{group.label}</p>{group.items.map(item => <button key={item.name} className={`nav-item ${active === item.name ? 'selected' : ''}`} onClick={() => { setActive(item.name); setMobileNav(false) }}><Icon name={item.icon}/><span>{item.name}</span>{item.name === 'Penjualan' && <span className="nav-count">4</span>}</button>)}</div>)}</nav>
-      <div className="sidebar-bottom"><div className="help-card"><div className="help-orb"><Icon name="spark" size={17}/></div><strong>Ruang bertumbuh</strong><p>Kelola aktivitas bisnis dalam satu workspace.</p><button onClick={() => showToast('Panduan penggunaan akan segera tersedia')}>Lihat panduan <Icon name="arrow" size={14}/></button></div><button className={`nav-item settings-link ${active === 'Pengaturan' ? 'selected' : ''}`} onClick={() => { setActive('Pengaturan'); setMobileNav(false) }}><Icon name="settings"/><span>Pengaturan</span></button><div className="profile"><div className="profile-avatar">AD</div><div className="profile-copy"><strong>Aditya Darma</strong><small>Administrator · Demo</small></div><button className="icon-button profile-menu" aria-label="Menu profil" onClick={() => showToast('Profil contoh Aditya Darma')}><Icon name="dots"/></button></div></div>
+      <div className="company-switch"><div className="company-avatar">{organization.name.slice(0, 1).toUpperCase()}</div><div className="company-copy"><strong>{organization.name}</strong><small>Workspace</small></div><span className="switch-chevron"><Icon name="chevron" size={15}/></span></div>
+      <nav className="side-nav" aria-label="Navigasi utama"><div className="nav-group"><p className="nav-label">RUANG KERJA</p><NavButton name="Ringkasan" icon="grid" active={active} onClick={setActive}/><NavButton name="Transaksi" icon="receipt" active={active} onClick={setActive}/><NavButton name="Kontak" icon="users" active={active} onClick={setActive}/></div><div className="nav-group"><p className="nav-label">PREFERENSI</p><NavButton name="Pengaturan" icon="settings" active={active} onClick={setActive}/></div></nav>
+      <div className="sidebar-bottom"><div className="connection-card"><span className="connection-dot"/><span><strong>Terhubung</strong><small>Database Supabase</small></span></div><div className="profile"><div className="profile-avatar">{(session.user.email ?? 'A').slice(0, 1).toUpperCase()}</div><div className="profile-copy"><strong>{session.user.email}</strong><small>Pemilik workspace</small></div><button className="icon-button profile-menu" aria-label="Keluar" title="Keluar" onClick={signOut}><Icon name="logout"/></button></div></div>
     </aside>
-
     {mobileNav && <button className="nav-scrim" aria-label="Tutup navigasi" onClick={() => setMobileNav(false)}/>}
-    <main className="main-area">
-      <header className="topbar"><button className="mobile-menu icon-button" aria-label="Buka navigasi" onClick={() => setMobileNav(true)}><Icon name="menu"/></button><div className="breadcrumb"><span>Workspace</span><Icon name="chevron" size={14}/><strong>{active}</strong></div><div className="top-actions"><label className="search-box"><Icon name="search" size={17}/><input aria-label="Cari" placeholder="Cari transaksi..." value={search} onChange={event => setSearch(event.target.value)}/><kbd>⌘ K</kbd></label><button className="icon-button notification" aria-label="Notifikasi" onClick={() => showToast('Belum ada notifikasi baru')}><Icon name="bell"/><i/></button><button className="top-avatar" aria-label="Profil pengguna" onClick={() => showToast('Administrator · Workspace demo')}>AD</button></div></header>
+    <main className="main-area"><header className="topbar"><button className="mobile-menu icon-button" aria-label="Buka navigasi" onClick={() => setMobileNav(true)}><Icon name="menu"/></button><div className="breadcrumb"><span>{organization.name}</span><Icon name="chevron" size={14}/><strong>{active}</strong></div><div className="top-actions"><label className="search-box"><Icon name="search" size={17}/><input aria-label="Cari" placeholder={active === 'Kontak' ? 'Cari kontak…' : 'Cari transaksi…'} value={search} onChange={event => setSearch(event.target.value)}/></label><button className="top-avatar" aria-label="Keluar dari akun" title="Keluar" onClick={signOut}>{(session.user.email ?? 'A').slice(0, 1).toUpperCase()}</button></div></header>
       <div className="content">
-        {active === 'Ringkasan' ? <>
-          <div className="welcome-row"><div><div className="eyebrow"><span className="live-dot"/> WORKSPACE DEMO · SENIN, 26 OKTOBER 2026</div><h1>Selamat pagi, Aditya <span className="wave">✳</span></h1><p className="subheading">Gambaran aktivitas bisnis contoh untuk hari ini.</p></div><button className="date-filter" onClick={() => showToast('Periode contoh: 1–31 Oktober 2026')}><Icon name="calendar" size={16}/> 1 – 31 Okt 2026 <Icon name="chevron" size={14}/></button></div>
-          <div className="demo-notice"><span><Icon name="spark" size={16}/></span><p><strong>Mode pratinjau.</strong> Angka dan aktivitas yang ditampilkan adalah data contoh, belum tersambung ke pencatatan akuntansi nyata.</p><button aria-label="Tutup informasi" onClick={event => event.currentTarget.parentElement?.remove()}><Icon name="close" size={15}/></button></div>
-          <section className="metric-grid" aria-label="Ringkasan keuangan"><article className="metric-card balance-card"><div className="metric-head"><span>Saldo kas & bank</span><span className="metric-icon"><Icon name="wallet" size={17}/></span></div><strong className="metric-value">Rp 248.650.000</strong><div className="metric-foot"><span className="trend positive">↗ 12,8%</span><span>dari bulan lalu</span><button className="metric-more" aria-label="Detail saldo" onClick={() => setActive('Kas & Bank')}><Icon name="dots"/></button></div><div className="balance-spark"><svg viewBox="0 0 120 34" preserveAspectRatio="none"><path d="M0 29 C12 27 13 22 25 24 S40 15 51 19 S65 10 75 15 S91 6 100 10 S111 3 120 5"/></svg></div></article>
-            <article className="metric-card"><div className="metric-head"><span>Total pemasukan</span><span className="metric-icon icon-green"><Icon name="arrow" size={16}/></span></div><strong className="metric-value">Rp 86.420.000</strong><div className="metric-foot"><span className="trend positive">↗ 8,2%</span><span>dari bulan lalu</span><span className="mini-bars"><i/><i/><i/><i/><i/><i/><i/><i/><i/></span></div></article><article className="metric-card"><div className="metric-head"><span>Total pengeluaran</span><span className="metric-icon icon-coral"><Icon name="arrow" size={16}/></span></div><strong className="metric-value">Rp 32.180.000</strong><div className="metric-foot"><span className="trend negative">↘ 3,4%</span><span>dari bulan lalu</span><span className="mini-bars bars-coral"><i/><i/><i/><i/><i/><i/><i/><i/><i/></span></div></article><article className="metric-card"><div className="metric-head"><span>Piutang berjalan</span><span className="metric-icon icon-violet"><Icon name="clock" size={16}/></span></div><strong className="metric-value">Rp 18.750.000</strong><div className="metric-foot"><span className="due-text"><span className="due-dot"/> 4 invoice belum lunas</span><button className="text-link" onClick={() => setActive('Penjualan')}>Lihat <Icon name="arrow" size={13}/></button></div></article></section>
-          <section className="middle-grid"><article className="panel cashflow-panel"><div className="panel-header"><div><h2>Arus kas</h2><p>Ringkasan data contoh enam bulan</p></div><button className="select-period" onClick={() => showToast('Periode demo: 6 bulan terakhir')}>6 bulan terakhir <Icon name="chevron" size={14}/></button></div><div className="chart-legend"><span><i className="legend-income"/> Pemasukan</span><span><i className="legend-expense"/> Pengeluaran</span><div className="chart-total"><small>Arus bersih · demo</small><strong>+ Rp 54,2 jt</strong></div></div><CashflowChart/></article><article className="panel receivable-panel"><div className="panel-header"><div><h2>Perlu perhatian</h2><p>Item contoh untuk ditinjau</p></div><button className="icon-button subtle" aria-label="Opsi" onClick={() => showToast('Daftar perhatian demo')}><Icon name="dots"/></button></div><div className="attention-list"><button className="attention-item" onClick={() => setActive('Penjualan')}><div className="attention-icon overdue"><Icon name="clock" size={17}/></div><div className="attention-copy"><strong>Piutang jatuh tempo</strong><small>2 invoice · PT Sinar Pagi + 1</small></div><div className="attention-value"><strong>Rp 8,5 jt</strong><Icon name="chevron" size={15}/></div></button><button className="attention-item" onClick={() => setActive('Pembelian')}><div className="attention-icon upcoming"><Icon name="calendar" size={17}/></div><div className="attention-copy"><strong>Tagihan minggu ini</strong><small>3 tagihan perlu ditinjau</small></div><div className="attention-value"><strong>Rp 4,2 jt</strong><Icon name="chevron" size={15}/></div></button><div className="attention-note"><span className="note-star">✦</span><span>Data rekening dan transaksi di halaman ini <strong>hanya contoh.</strong></span></div></div></article></section>
-          <section className="lower-grid"><article className="panel transactions-panel"><div className="panel-header"><div><h2>Transaksi terbaru</h2><p>Aktivitas pada workspace demo</p></div><button className="view-all" onClick={() => setActive('Transaksi')}>Lihat semua <Icon name="arrow" size={14}/></button></div><TransactionTable transactions={filteredTransactions.slice(0, 4)} search={search}/></article><QuickActions onAction={openAction}/></section>
-        </> : <ModulePage active={active} data={currentModule} search={search} onAction={openAction} onToast={showToast}/>}
-        <footer className="page-footer"><span>© 2026 Arunika · Workspace demo</span><span>Data contoh, belum untuk pembukuan resmi <span className="footer-spark">✳</span></span></footer>
+        {error && <InlineAlert kind="error" text={error} onClose={() => setError('')}/>}{message && <InlineAlert kind="success" text={message} onClose={() => setMessage('')}/>}
+        {active === 'Ringkasan' && <Dashboard organization={organization} transactions={transactions} income={income} expense={expense} cashNet={cashNet} loading={loading} onNavigate={setActive} onNew={() => setModal('transaction')}/>}
+        {active === 'Transaksi' && <TransactionsPage transactions={visibleTransactions} currency={organization.currency} loading={loading} onNew={() => setModal('transaction')} onDelete={deleteTransaction}/>}
+        {active === 'Kontak' && <ContactsPage contacts={visibleContacts} loading={loading} onNew={() => setModal('contact')} onDelete={deleteContact}/>}
+        {active === 'Pengaturan' && <SettingsPage organization={organization} email={session.user.email ?? ''} transactionCount={transactions.length} contactCount={contacts.length} onSignOut={signOut}/>}
+        <footer className="page-footer"><span>© {new Date().getFullYear()} Arunika</span><span>Workspace privat · {organization.currency}</span></footer>
       </div>
     </main>
-    {modal && <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setModal(null) }}><form className="entry-modal" onSubmit={submitEntry}><div className="modal-top"><div><span className="modal-eyebrow">WORKSPACE DEMO</span><h2>{modal}</h2></div><button type="button" className="icon-button" aria-label="Tutup" onClick={() => setModal(null)}><Icon name="close"/></button></div><p className="modal-notice">Data yang diisi hanya disimpan sementara di tampilan ini.</p><label className="field-label">{modal === 'Buat invoice' ? 'Nama pelanggan' : modal === 'Tambah barang' ? 'Nama barang' : modal === 'Tambah kontak' ? 'Nama kontak' : modal === 'Catat pembelian' ? 'Nama pemasok / keterangan' : 'Deskripsi'}<input autoFocus required value={description} onChange={event => setDescription(event.target.value)} placeholder="Masukkan keterangan"/></label>{(modal === 'Catat pemasukan' || modal === 'Catat pengeluaran' || modal === 'Buat invoice' || modal === 'Catat pembelian' || modal === 'Catat transfer') && <label className="field-label">Nominal (Rp)<input required type="number" min="1" value={amount} onChange={event => setAmount(event.target.value)} placeholder="0"/></label>}<div className="modal-actions"><button type="button" className="cancel-button" onClick={() => setModal(null)}>Batal</button><button className="primary-button" type="submit">Simpan di demo <Icon name="arrow" size={15}/></button></div></form></div>}
-    {toast && <div className="toast"><span>✓</span>{toast}</div>}
+    {modal && <EntryModal type={modal} contacts={contacts} currency={organization.currency} onClose={() => setModal(null)} onTransaction={saveTransaction} onContact={saveContact} loading={loading}/>}
   </div>
 }
 
-function TransactionTable({ transactions, search }: { transactions: Transaction[]; search: string }) {
-  return <div className="transaction-table"><div className="table-head"><span>TRANSAKSI</span><span>KATEGORI</span><span>TANGGAL</span><span>NOMINAL</span></div>{transactions.length ? transactions.map((item, index) => <div className="table-row" key={`${item.name}-${index}`}><div className="transaction-name"><span className={`transaction-avatar ${item.color}`}>{item.initials}</span><strong>{item.name}</strong></div><span className="transaction-category">{item.category}</span><span className="transaction-date">{item.date}</span><strong className={`transaction-amount ${item.kind}`}>{item.kind === 'in' ? '+' : '−'} {rupiah(item.amount)}</strong></div>) : <div className="empty-search">Tidak ada transaksi yang cocok dengan “{search}”.</div>}</div>
+function databaseError(raw: string) {
+  if (raw.includes('relation') && raw.includes('does not exist')) return 'Tabel belum tersedia. Terapkan migrasi Supabase dari folder supabase/migrations.'
+  if (raw.includes('Invalid API key')) return 'API key Supabase tidak valid. Periksa VITE_SUPABASE_ANON_KEY di .env.local.'
+  return raw
 }
 
-function QuickActions({ onAction }: { onAction: (action: string) => void }) {
-  return <article className="panel quick-panel"><div className="panel-header"><div><h2>Mulai sesuatu</h2><p>Pintasan aktivitas harian</p></div></div><div className="quick-actions"><button className="quick-action" onClick={() => onAction('Catat pemasukan')}><span className="quick-icon income-quick"><Icon name="plus"/></span><span><strong>Catat pemasukan</strong><small>Contoh uang masuk</small></span><Icon name="chevron" size={15}/></button><button className="quick-action" onClick={() => onAction('Catat pengeluaran')}><span className="quick-icon expense-quick"><Icon name="receipt"/></span><span><strong>Catat pengeluaran</strong><small>Contoh biaya usaha</small></span><Icon name="chevron" size={15}/></button><button className="quick-action" onClick={() => onAction('Buat invoice')}><span className="quick-icon invoice-quick"><Icon name="arrow"/></span><span><strong>Buat invoice</strong><small>Siapkan tagihan contoh</small></span><Icon name="chevron" size={15}/></button></div></article>
+function NavButton({ name, icon, active, onClick }: { name: ModuleName; icon: IconName; active: ModuleName; onClick: (name: ModuleName) => void }) {
+  return <button className={`nav-item ${active === name ? 'selected' : ''}`} onClick={() => onClick(name)}><Icon name={icon}/><span>{name}</span></button>
 }
 
-function ModulePage({ active, data, search, onAction, onToast }: { active: ModuleName; data: NonNullable<typeof moduleData[ModuleName]> | undefined; search: string; onAction: (action: string) => void; onToast: (message: string) => void }) {
-  const [statusFilter, setStatusFilter] = useState('Semua status')
-  const rows = (data?.rows ?? []).filter(row => `${row.name} ${row.detail} ${row.status} ${row.date}`.toLowerCase().includes(search.toLowerCase())).filter(row => statusFilter === 'Semua status' || row.status === statusFilter)
-  if (!data) return null
+function FullPageState({ title, description }: { title: string; description: string }) {
+  return <div className="auth-page"><div className="auth-card"><Brand/><div className="auth-loading"><span className="spinner"/><h1>{title}</h1><p>{description}</p></div></div></div>
+}
+
+function Brand() {
+  return <div className="brand auth-brand"><div className="brand-mark"><span/><span/><span/></div><span>arunika<span className="brand-period">.</span></span></div>
+}
+
+function SetupScreen() {
+  return <div className="auth-page"><div className="auth-card"><Brand/><div className="auth-copy"><span className="auth-eyebrow">PENGATURAN DIPERLUKAN</span><h1>Sambungkan Supabase</h1><p>Tambahkan URL project dan anon key Supabase di file .env.local untuk mulai memakai aplikasi.</p></div><div className="setup-steps"><span>1</span><p>Buat project Supabase dan jalankan SQL migrasi dari <strong>supabase/migrations</strong>.</p><span>2</span><p>Salin project URL dan anon key dari pengaturan API project.</p><span>3</span><p>Isi <strong>VITE_SUPABASE_URL</strong> dan <strong>VITE_SUPABASE_ANON_KEY</strong> di .env.local, lalu mulai ulang aplikasi.</p></div><div className="auth-footnote">Anon key dirancang untuk aplikasi browser. Jangan pernah memasukkan service_role key.</div></div></div>
+}
+
+function AuthScreen({ mode, setMode, email, setEmail, password, setPassword, onSubmit, loading, error, message }: { mode: 'login' | 'signup'; setMode: (mode: 'login' | 'signup') => void; email: string; setEmail: (value: string) => void; password: string; setPassword: (value: string) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; loading: boolean; error: string; message: string }) {
+  return <div className="auth-page"><div className="auth-card"><Brand/><div className="auth-copy"><span className="auth-eyebrow">ARUNIKA WORKSPACE</span><h1>{mode === 'login' ? 'Selamat datang kembali' : 'Buat akun Arunika'}</h1><p>{mode === 'login' ? 'Masuk untuk mengelola catatan keuangan bisnis Anda.' : 'Daftar dengan email untuk menyiapkan workspace bisnis.'}</p></div>{error && <InlineAlert kind="error" text={error}/ >}{message && <InlineAlert kind="success" text={message}/ >}<form className="auth-form" onSubmit={onSubmit}><label className="field-label">Email<input type="email" autoComplete="email" required value={email} onChange={event => setEmail(event.target.value)} placeholder="nama@perusahaan.id"/></label><label className="field-label">Kata sandi<input type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={8} required value={password} onChange={event => setPassword(event.target.value)} placeholder="Minimal 8 karakter"/></label><button className="primary-button auth-submit" disabled={loading}>{loading ? 'Memproses…' : mode === 'login' ? 'Masuk' : 'Daftar'} <Icon name="arrow" size={15}/></button></form><div className="auth-toggle">{mode === 'login' ? 'Belum punya akun?' : 'Sudah punya akun?'} <button onClick={() => setMode(mode === 'login' ? 'signup' : 'login')}>{mode === 'login' ? 'Daftar' : 'Masuk'}</button></div><div className="auth-footnote">Data hanya dapat diakses oleh akun yang memiliki workspace.</div></div></div>
+}
+
+function OrganizationScreen({ name, setName, onSubmit, email, loading, error, onSignOut }: { name: string; setName: (value: string) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; email: string; loading: boolean; error: string; onSignOut: () => void }) {
+  return <div className="auth-page"><div className="auth-card"><Brand/><div className="auth-copy"><span className="auth-eyebrow">LANGKAH PERTAMA</span><h1>Buat workspace bisnis</h1><p>Workspace akan menjadi ruang privat untuk transaksi dan kontak Anda.</p></div>{error && <InlineAlert kind="error" text={error}/ >}<form className="auth-form" onSubmit={onSubmit}><label className="field-label">Nama bisnis<input required maxLength={100} value={name} onChange={event => setName(event.target.value)} placeholder="Contoh: Nusa Kreatif"/></label><label className="field-label">Email pemilik<input value={email} readOnly/></label><button className="primary-button auth-submit" disabled={loading}>{loading ? 'Menyiapkan…' : 'Buat workspace'} <Icon name="arrow" size={15}/></button></form><div className="auth-toggle"><button onClick={onSignOut}>Keluar dari akun</button></div><div className="auth-footnote">Workspace ini hanya dapat diakses oleh akun pemilik saat ini.</div></div></div>
+}
+
+function InlineAlert({ kind, text, onClose }: { kind: 'error' | 'success'; text: string; onClose?: () => void }) {
+  return <div className={`inline-alert ${kind}`} role={kind === 'error' ? 'alert' : 'status'}><span>{kind === 'error' ? '!' : '✓'}</span><p>{text}</p>{onClose && <button aria-label="Tutup pesan" onClick={onClose}><Icon name="close" size={14}/></button>}</div>
+}
+
+function Dashboard({ organization, transactions, income, expense, cashNet, loading, onNavigate, onNew }: { organization: Organization; transactions: LedgerEntry[]; income: number; expense: number; cashNet: number; loading: boolean; onNavigate: (module: ModuleName) => void; onNew: () => void }) {
+  const recent = transactions.slice(0, 5)
   return <>
-    <div className="module-heading"><div><div className="eyebrow"><span className="live-dot"/> WORKSPACE DEMO</div><h1>{active}</h1><p className="subheading">{data.description}</p></div><button className="primary-button" onClick={() => onAction(data.action)}><Icon name={data.action === 'Unduh ringkasan' ? 'download' : 'plus'} size={16}/>{data.action}</button></div>
-    <div className="module-note"><Icon name="spark" size={16}/><span>Semua isi halaman ini adalah data contoh. Fitur ini belum tersambung ke pembukuan atau penyimpanan permanen.</span></div>
-    <section className="module-stats">{data.stats.map((stat, index) => <article className="module-stat" key={stat.label}><span className={`stat-bullet stat-${index}`}/><div><small>{stat.label}</small><strong>{stat.value}</strong><span>{stat.note}</span></div></article>)}</section>
-    <section className="panel module-table-panel"><div className="module-toolbar"><div><h2>{active === 'Laporan' ? 'Laporan tersedia' : active === 'Pengaturan' ? 'Preferensi workspace' : `Daftar ${active.toLowerCase()}`}</h2><p>{rows.length} item contoh</p></div><div className="table-tools"><label className="table-search"><Icon name="search" size={15}/><input aria-label="Cari daftar" placeholder="Cari daftar..." value={search} readOnly/></label><label className="filter-control"><Icon name="filter" size={15}/><select aria-label="Filter status" value={statusFilter} onChange={event => setStatusFilter(event.target.value)}><option>Semua status</option><option>Lunas</option><option>Belum dibayar</option><option>Jatuh tempo</option><option>Aktif</option><option>Tersedia</option></select></label><button className="export-button" onClick={() => onToast('Unduhan tidak tersedia pada versi demo')}><Icon name="download" size={15}/><span>Ekspor</span></button></div></div><div className="module-table-scroll"><div className="module-table"><div className="module-table-head">{data.columns.map(column => <span key={column}>{column}</span>)}</div>{rows.length ? rows.map((row, index) => <div className="module-table-row" key={`${row.name}-${index}`}><div className="module-primary"><span className={`row-avatar avatar-${index % 4}`}>{row.name.split(' ').map(part => part[0]).slice(0, 2).join('')}</span><span><strong>{row.name}</strong><small>{row.detail}</small></span></div><span className="module-secondary">{row.detail.split(' · ')[0]}</span><span className="module-date">{row.date}</span><strong className="module-amount">{row.amount}</strong><span className={`status-pill ${row.tone}`}>{row.status}</span></div>) : <div className="module-empty">Tidak ada data yang cocok dengan pencarian atau filter.</div>}</div></div><div className="table-pagination"><span>Menampilkan {rows.length ? 1 : 0}–{rows.length} dari {rows.length} data contoh</span><div><button disabled aria-label="Halaman sebelumnya"><Icon name="chevron" size={14}/></button><button className="page-current">1</button><button disabled aria-label="Halaman berikutnya"><Icon name="chevron" size={14}/></button></div></div></section>
-    <div className="module-footnote"><Icon name="file" size={15}/><span>Untuk kebutuhan pembukuan resmi, verifikasi setiap transaksi dan konsultasikan dengan tenaga akuntansi.</span></div>
+    <div className="welcome-row"><div><div className="eyebrow"><span className="live-dot"/> RINGKASAN KEUANGAN</div><h1>Selamat datang</h1><p className="subheading">Ringkasan berdasarkan catatan yang tersimpan di {organization.name}.</p></div><button className="primary-button" onClick={onNew}><Icon name="plus" size={16}/> Catat transaksi</button></div>
+    <section className="metric-grid" aria-label="Ringkasan keuangan"><MetricCard title="Arus kas bersih" value={formatCurrency(cashNet, organization.currency)} detail="Pemasukan dikurangi pengeluaran tercatat" icon="wallet"/><MetricCard title="Pemasukan bulan ini" value={formatCurrency(income, organization.currency)} detail="Berdasarkan tanggal transaksi" icon="arrow" tone="green"/><MetricCard title="Pengeluaran bulan ini" value={formatCurrency(expense, organization.currency)} detail="Berdasarkan tanggal transaksi" icon="receipt" tone="coral"/><MetricCard title="Jumlah transaksi" value={new Intl.NumberFormat('id-ID').format(transactions.length)} detail="Semua transaksi tersimpan" icon="clock" tone="violet"/></section>
+    <section className="lower-grid dashboard-grid"><article className="panel transactions-panel"><div className="panel-header"><div><h2>Transaksi terbaru</h2><p>{loading ? 'Memuat catatan…' : 'Catatan keuangan terbaru'}</p></div><button className="view-all" onClick={() => onNavigate('Transaksi')}>Semua transaksi <Icon name="arrow" size={14}/></button></div><LedgerTable transactions={recent} currency={organization.currency} loading={loading}/></article><article className="panel quick-panel"><div className="panel-header"><div><h2>Pencatatan</h2><p>Mulai dari transaksi yang benar-benar terjadi</p></div></div><div className="quick-actions"><button className="quick-action" onClick={onNew}><span className="quick-icon income-quick"><Icon name="plus"/></span><span><strong>Catat transaksi</strong><small>Simpan pemasukan atau pengeluaran</small></span><Icon name="chevron" size={15}/></button><button className="quick-action" onClick={() => onNavigate('Kontak')}><span className="quick-icon invoice-quick"><Icon name="users"/></span><span><strong>Kelola kontak</strong><small>Pelanggan dan pemasok Anda</small></span><Icon name="chevron" size={15}/></button></div><div className="dashboard-reminder"><Icon name="bank" size={16}/><span>Nilai arus kas adalah hasil penjumlahan catatan, bukan saldo rekening bank.</span></div></article></section>
   </>
+}
+
+function MetricCard({ title, value, detail, icon, tone = '' }: { title: string; value: string; detail: string; icon: IconName; tone?: string }) {
+  return <article className="metric-card"><div className="metric-head"><span>{title}</span><span className={`metric-icon ${tone ? `icon-${tone}` : ''}`}><Icon name={icon} size={17}/></span></div><strong className="metric-value">{value}</strong><div className="metric-foot metric-detail">{detail}</div></article>
+}
+
+function TransactionsPage({ transactions, currency, loading, onNew, onDelete }: { transactions: LedgerEntry[]; currency: string; loading: boolean; onNew: () => void; onDelete: (id: string) => void }) {
+  const income = transactions.filter(row => row.type === 'income').reduce((sum, row) => sum + Number(row.amount), 0)
+  const expense = transactions.filter(row => row.type === 'expense').reduce((sum, row) => sum + Number(row.amount), 0)
+  return <><div className="module-heading"><div><div className="eyebrow"><span className="live-dot"/> PEMBUKUAN</div><h1>Transaksi</h1><p className="subheading">Kelola pemasukan dan pengeluaran yang dicatat.</p></div><button className="primary-button" onClick={onNew}><Icon name="plus" size={16}/> Catat transaksi</button></div><section className="module-stats"><Stat label="Transaksi ditemukan" value={String(transactions.length)} note="sesuai pencarian"/><Stat label="Total pemasukan" value={formatCurrency(income, currency)} note="hasil pencarian aktif"/><Stat label="Total pengeluaran" value={formatCurrency(expense, currency)} note="hasil pencarian aktif"/></section><article className="panel module-table-panel"><div className="module-toolbar"><div><h2>Riwayat transaksi</h2><p>{loading ? 'Memuat data…' : `${transactions.length} catatan`}</p></div></div><LedgerTable transactions={transactions} currency={currency} loading={loading} onDelete={onDelete}/></article></>
+}
+
+function LedgerTable({ transactions, currency, loading, onDelete }: { transactions: LedgerEntry[]; currency: string; loading: boolean; onDelete?: (id: string) => void }) {
+  if (loading && !transactions.length) return <div className="table-state"><span className="spinner small"/> Memuat catatan transaksi…</div>
+  if (!transactions.length) return <div className="table-state"><span className="empty-state-icon"><Icon name="receipt" size={21}/></span><strong>Belum ada transaksi</strong><span>Catat transaksi pertama agar ringkasan mulai terisi.</span></div>
+  return <div className="ledger-table-wrap"><div className="ledger-table"><div className="table-head"><span>KETERANGAN</span><span>KATEGORI</span><span>TANGGAL</span><span>NOMINAL</span><span/></div>{transactions.map(row => <div className="table-row" key={row.id}><div className="transaction-name"><span className={`transaction-avatar ${row.type === 'income' ? 'mint' : 'peach'}`}>{row.type === 'income' ? 'IN' : 'OUT'}</span><strong>{row.description}</strong></div><span className="transaction-category">{row.category}</span><span className="transaction-date">{formatDate(row.transaction_date)}</span><strong className={`transaction-amount ${row.type === 'income' ? 'in' : 'out'}`}>{row.type === 'income' ? '+' : '−'} {formatCurrency(Number(row.amount), currency)}</strong>{onDelete ? <button className="row-delete" aria-label={`Hapus transaksi ${row.description}`} title="Hapus transaksi" onClick={() => onDelete(row.id)}><Icon name="close" size={15}/></button> : <span/>}</div>)}</div></div>
+}
+
+function ContactsPage({ contacts, loading, onNew, onDelete }: { contacts: Contact[]; loading: boolean; onNew: () => void; onDelete: (id: string) => void }) {
+  return <><div className="module-heading"><div><div className="eyebrow"><span className="live-dot"/> RELASI BISNIS</div><h1>Kontak</h1><p className="subheading">Simpan informasi pelanggan dan pemasok.</p></div><button className="primary-button" onClick={onNew}><Icon name="plus" size={16}/> Tambah kontak</button></div><section className="module-stats"><Stat label="Semua kontak" value={String(contacts.length)} note="tersimpan di workspace"/><Stat label="Pelanggan" value={String(contacts.filter(contact => contact.type === 'customer' || contact.type === 'both').length)} note="termasuk pelanggan & pemasok"/><Stat label="Pemasok" value={String(contacts.filter(contact => contact.type === 'supplier' || contact.type === 'both').length)} note="termasuk pelanggan & pemasok"/></section><article className="panel module-table-panel"><div className="module-toolbar"><div><h2>Daftar kontak</h2><p>{loading ? 'Memuat data…' : `${contacts.length} kontak`}</p></div></div>{loading && !contacts.length ? <div className="table-state"><span className="spinner small"/> Memuat kontak…</div> : !contacts.length ? <div className="table-state"><span className="empty-state-icon"><Icon name="users" size={21}/></span><strong>Belum ada kontak</strong><span>Tambahkan kontak untuk menyimpan relasi bisnis Anda.</span></div> : <div className="ledger-table-wrap"><div className="ledger-table contact-table"><div className="table-head"><span>NAMA</span><span>JENIS</span><span>EMAIL</span><span>TELEPON</span><span/></div>{contacts.map(contact => <div className="table-row" key={contact.id}><div className="transaction-name"><span className="transaction-avatar lavender">{contact.name.slice(0, 2).toUpperCase()}</span><strong>{contact.name}</strong></div><span className="transaction-category">{contact.type === 'customer' ? 'Pelanggan' : contact.type === 'supplier' ? 'Pemasok' : 'Pelanggan & pemasok'}</span><span className="transaction-date">{contact.email || '—'}</span><span className="transaction-date">{contact.phone || '—'}</span><button className="row-delete" aria-label={`Hapus kontak ${contact.name}`} onClick={() => onDelete(contact.id)}><Icon name="close" size={15}/></button></div>)}</div></div>}</article></>
+}
+
+function Stat({ label, value, note }: { label: string; value: string; note: string }) {
+  return <article className="module-stat"><span className="stat-bullet"/><div><small>{label}</small><strong>{value}</strong><span>{note}</span></div></article>
+}
+
+function SettingsPage({ organization, email, transactionCount, contactCount, onSignOut }: { organization: Organization; email: string; transactionCount: number; contactCount: number; onSignOut: () => void }) {
+  return <><div className="module-heading"><div><div className="eyebrow"><span className="live-dot"/> WORKSPACE</div><h1>Pengaturan</h1><p className="subheading">Informasi dasar workspace dan akun yang sedang aktif.</p></div></div><div className="settings-grid"><section className="panel settings-panel"><div className="panel-header"><div><h2>Informasi perusahaan</h2><p>Data workspace yang digunakan untuk pencatatan.</p></div></div><div className="settings-list"><Setting label="Nama bisnis" value={organization.name}/><Setting label="Mata uang" value={`${organization.currency} · Rupiah Indonesia`}/><Setting label="Pemilik workspace" value={email}/></div></section><section className="panel settings-panel"><div className="panel-header"><div><h2>Data tersimpan</h2><p>Jumlah catatan pada workspace ini.</p></div></div><div className="settings-list"><Setting label="Transaksi" value={`${transactionCount} catatan`}/><Setting label="Kontak" value={`${contactCount} kontak`}/><Setting label="Penyimpanan" value="Supabase Database"/></div><button className="signout-button" onClick={onSignOut}><Icon name="logout" size={16}/> Keluar dari akun</button></section></div></>
+}
+
+function Setting({ label, value }: { label: string; value: string }) {
+  return <div className="setting-row"><span>{label}</span><strong>{value}</strong></div>
+}
+
+function EntryModal({ type, contacts, currency, onClose, onTransaction, onContact, loading }: { type: 'transaction' | 'contact'; contacts: Contact[]; currency: string; onClose: () => void; onTransaction: (event: FormEvent<HTMLFormElement>) => void; onContact: (event: FormEvent<HTMLFormElement>) => void; loading: boolean }) {
+  return <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}><form className="entry-modal" onSubmit={type === 'transaction' ? onTransaction : onContact}><div className="modal-top"><div><span className="modal-eyebrow">{type === 'transaction' ? 'PEMBUKUAN' : 'RELasi BISNIS'}</span><h2>{type === 'transaction' ? 'Catat transaksi' : 'Tambah kontak'}</h2></div><button type="button" className="icon-button" aria-label="Tutup" onClick={onClose}><Icon name="close"/></button></div>{type === 'transaction' ? <><label className="field-label">Jenis transaksi<select name="type" required defaultValue="expense"><option value="income">Pemasukan</option><option value="expense">Pengeluaran</option></select></label><label className="field-label">Keterangan<input name="description" required maxLength={180} placeholder="Contoh: Pembayaran jasa"/></label><label className="field-label">Kategori<input name="category" maxLength={80} placeholder="Contoh: Penjualan"/></label><label className="field-label">Nominal ({currency})<input name="amount" required type="number" min="1" step="1" inputMode="numeric" placeholder="0"/></label><label className="field-label">Tanggal<input name="date" type="date" defaultValue={today()} required/></label>{contacts.length > 0 && <p className="form-hint">Kontak tersimpan: {contacts.length}. Pengaitan kontak bisa dilakukan saat fitur invoice tersedia.</p>}</> : <><label className="field-label">Nama kontak<input name="name" required maxLength={120} placeholder="Nama pelanggan atau pemasok"/></label><label className="field-label">Jenis kontak<select name="type" defaultValue="customer"><option value="customer">Pelanggan</option><option value="supplier">Pemasok</option><option value="both">Pelanggan & pemasok</option></select></label><label className="field-label">Email<input name="email" type="email" maxLength={254} placeholder="email@perusahaan.id"/></label><label className="field-label">Nomor telepon<input name="phone" type="tel" maxLength={32} placeholder="Nomor telepon"/></label></>}<div className="modal-actions"><button type="button" className="cancel-button" onClick={onClose}>Batal</button><button className="primary-button" type="submit" disabled={loading}>{loading ? 'Menyimpan…' : 'Simpan'} <Icon name="arrow" size={15}/></button></div></form></div>
 }
 
 export default App
