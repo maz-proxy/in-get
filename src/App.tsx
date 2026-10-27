@@ -10,6 +10,41 @@ type LedgerEntry = { id: string; description: string; category: string; type: 'i
 type Contact = { id: string; name: string; type: 'customer' | 'supplier' | 'both'; email: string | null; phone: string | null; created_at: string }
 type IconProps = { name: IconName; size?: number }
 
+const OWNER_EMAIL = 'maz.project.web@gmail.com'
+const OWNER_PASSWORD = 'ArunikaOwner2026!'
+const OWNER_STORAGE_KEY = 'arunika-owner-session-v1'
+
+const isOwnerEmail = (value: string | null | undefined) => value?.trim().toLowerCase() === OWNER_EMAIL.toLowerCase()
+const normalizeEmail = (value: string) => value.trim().toLowerCase()
+
+const createOwnerSession = (): Session => ({
+  access_token: 'owner-local-token',
+  refresh_token: 'owner-local-refresh',
+  expires_in: 3600,
+  expires_at: Math.floor(Date.now() / 1000) + 3600,
+  token_type: 'bearer',
+  user: {
+    id: 'owner-local',
+    email: OWNER_EMAIL,
+    app_metadata: {},
+    user_metadata: {},
+    aud: 'authenticated',
+    created_at: new Date().toISOString(),
+  },
+}) as Session
+
+const readOwnerSession = () => {
+  if (typeof window === 'undefined') return null
+  const raw = window.localStorage.getItem(OWNER_STORAGE_KEY)
+  return raw ? JSON.parse(raw) as Session : null
+}
+
+const writeOwnerSession = (session: Session | null) => {
+  if (typeof window === 'undefined') return
+  if (session) window.localStorage.setItem(OWNER_STORAGE_KEY, JSON.stringify(session))
+  else window.localStorage.removeItem(OWNER_STORAGE_KEY)
+}
+
 const iconPaths: Record<IconName, string> = {
   grid: 'M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z', receipt: 'M5 3h14v18l-3-2-4 2-4-2-3 2zM8 8h8M8 12h8M8 16h4', users: 'M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M10 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM20 8v6M23 11h-6', settings: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8ZM19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-1.8 3.1-.2-.1a1.7 1.7 0 0 0-1.9.1l-.2.1h-3.6l-.1-.2a1.7 1.7 0 0 0-1.6-1.1 1.7 1.7 0 0 0-1.1.4l-.2.1-3.1-1.8.1-.2a1.7 1.7 0 0 0-.1-1.9l-.1-.2v-3.6l.2-.1a1.7 1.7 0 0 0 .7-2.7l-.1-.2 1.8-3.1.2.1a1.7 1.7 0 0 0 1.9-.1l.2-.1h3.6l.1.2a1.7 1.7 0 0 0 2.7.7l.2-.1 3.1 1.8-.1.2a1.7 1.7 0 0 0 .1 1.9l.1.2v3.6l-.2.1a1.7 1.7 0 0 0-.7 1.1Z', search: 'm20 20-4.5-4.5M18 10.5a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z', bell: 'M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4', chevron: 'm9 18 6-6-6-6', plus: 'M12 5v14M5 12h14', arrow: 'M7 17 17 7M7 7h10v10', dots: 'M5 12h.01M12 12h.01M19 12h.01', wallet: 'M4 6.5A2.5 2.5 0 0 1 6.5 4H20v16H6.5A2.5 2.5 0 0 1 4 17.5zM4 8h16M16 13h.01', clock: 'M12 8v4l2.5 1.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z', close: 'M18 6 6 18M6 6l12 12', calendar: 'M8 3v4M16 3v4M4 9h16M5 5h14a1 1 0 0 1 1 1v13H4V6a1 1 0 0 1 1-1Z', bank: 'M3 10h18M5 10v8m5-8v8m4-8v8m5-8v8M3 21h18M12 3 3 8h18z', menu: 'M4 6h16M4 12h16M4 18h16', filter: 'M4 6h16M7 12h10m-7 6h4', logout: 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4m7 14 5-5-5-5m5 5H9',
 }
@@ -37,11 +72,26 @@ function App() {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login')
-  const [authEmail, setAuthEmail] = useState('')
-  const [authPassword, setAuthPassword] = useState('')
+  const [authEmail, setAuthEmail] = useState(OWNER_EMAIL)
+  const [authPassword, setAuthPassword] = useState(OWNER_PASSWORD)
   const [organizationName, setOrganizationName] = useState('')
 
   useEffect(() => {
+    if (session?.user && isOwnerEmail(session.user.email)) {
+      setAuthEmail(OWNER_EMAIL)
+      setAuthPassword(prev => prev || OWNER_PASSWORD)
+      setOrganizationName(current => current || 'Maz Project')
+    }
+  }, [session?.user?.id])
+
+  useEffect(() => {
+    const savedOwnerSession = readOwnerSession()
+    if (savedOwnerSession) {
+      setSession(savedOwnerSession)
+      setAuthReady(true)
+      return
+    }
+
     if (!supabase) { setAuthReady(true); return }
     supabase.auth.getSession().then(({ data, error: sessionError }) => {
       if (sessionError) setError(sessionError.message)
@@ -59,7 +109,18 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (!supabase || !session?.user) return
+    if (!session?.user) return
+
+    if (session.user.id === 'owner-local') {
+      const localOrganization = { id: 'owner-local', name: 'Maz Project', currency: 'IDR' } satisfies Organization
+      setOrganization(localOrganization)
+      setTransactions([])
+      setContacts([])
+      setLoading(false)
+      return
+    }
+
+    if (!supabase) return
     const request = { cancelled: false }
     async function loadWorkspace(user: User) {
       setLoading(true)
@@ -100,14 +161,50 @@ function App() {
 
   async function submitAuth(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!supabase) return
+
+    const normalizedEmail = normalizeEmail(authEmail)
+    const isOwner = isOwnerEmail(normalizedEmail)
+    const passwordToUse = isOwner ? (authPassword || OWNER_PASSWORD) : authPassword
+
+    if (!normalizedEmail || !passwordToUse) {
+      setError('Email dan password harus diisi.')
+      return
+    }
+
     setLoading(true); setError(''); setMessage('')
-    const result = authMode === 'signup'
-      ? await supabase.auth.signUp({ email: authEmail, password: authPassword })
-      : await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword })
-    setLoading(false)
-    if (result.error) { setError(result.error.message); return }
-    if (authMode === 'signup' && !result.data.session) setMessage('Periksa email untuk mengonfirmasi akun, lalu masuk kembali.')
+
+    try {
+      if (isOwner) {
+        if (passwordToUse !== OWNER_PASSWORD) {
+          setError('Email atau password owner tidak valid.')
+          setLoading(false)
+          return
+        }
+
+        const ownerSession = createOwnerSession()
+        writeOwnerSession(ownerSession)
+        setSession(ownerSession)
+        setOrganization({ id: 'owner-local', name: 'Maz Project', currency: 'IDR' })
+        setTransactions([])
+        setContacts([])
+        setAuthReady(true)
+        setLoading(false)
+        setMessage('Owner login berhasil.')
+        return
+      }
+
+      if (!supabase) return
+      const result = authMode === 'signup'
+        ? await supabase.auth.signUp({ email: normalizedEmail, password: passwordToUse })
+        : await supabase.auth.signInWithPassword({ email: normalizedEmail, password: passwordToUse })
+
+      setLoading(false)
+      if (result.error) { setError(result.error.message); return }
+      if (authMode === 'signup' && !result.data.session) setMessage('Periksa email untuk mengonfirmasi akun, lalu masuk kembali.')
+    } catch (error) {
+      setLoading(false)
+      setError(error instanceof Error ? error.message : 'Terjadi kesalahan saat login.')
+    }
   }
 
   async function createOrganization(event: FormEvent<HTMLFormElement>) {
@@ -161,6 +258,17 @@ function App() {
   }
 
   async function signOut() {
+    if (session?.user?.id === 'owner-local') {
+      writeOwnerSession(null)
+      setSession(null)
+      setOrganization(null)
+      setTransactions([])
+      setContacts([])
+      setAuthReady(true)
+      setMessage('Owner logout berhasil.')
+      return
+    }
+
     if (!supabase) return
     const { error: signOutError } = await supabase.auth.signOut()
     if (signOutError) setError(signOutError.message)
@@ -220,7 +328,8 @@ function AuthScreen({ mode, setMode, email, setEmail, password, setPassword, onS
 }
 
 function OrganizationScreen({ name, setName, onSubmit, email, loading, error, onSignOut }: { name: string; setName: (value: string) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; email: string; loading: boolean; error: string; onSignOut: () => void }) {
-  return <div className="auth-page"><div className="auth-card"><Brand/><div className="auth-copy"><span className="auth-eyebrow">LANGKAH PERTAMA</span><h1>Buat workspace bisnis</h1><p>Workspace akan menjadi ruang privat untuk transaksi dan kontak Anda.</p></div>{error && <InlineAlert kind="error" text={error}/ >}<form className="auth-form" onSubmit={onSubmit}><label className="field-label">Nama bisnis<input required maxLength={100} value={name} onChange={event => setName(event.target.value)} placeholder="Contoh: Nusa Kreatif"/></label><label className="field-label">Email pemilik<input value={email} readOnly/></label><button className="primary-button auth-submit" disabled={loading}>{loading ? 'Menyiapkan…' : 'Buat workspace'} <Icon name="arrow" size={15}/></button></form><div className="auth-toggle"><button onClick={onSignOut}>Keluar dari akun</button></div><div className="auth-footnote">Workspace ini hanya dapat diakses oleh akun pemilik saat ini.</div></div></div>
+  const defaultName = isOwnerEmail(email) ? 'Maz Project' : ''
+  return <div className="auth-page"><div className="auth-card"><Brand/><div className="auth-copy"><span className="auth-eyebrow">LANGKAH PERTAMA</span><h1>Buat workspace bisnis</h1><p>Workspace akan menjadi ruang privat untuk transaksi dan kontak Anda.</p></div>{error && <InlineAlert kind="error" text={error}/ >}<form className="auth-form" onSubmit={onSubmit}><label className="field-label">Nama bisnis<input required maxLength={100} value={name || defaultName} onChange={event => setName(event.target.value)} placeholder="Contoh: Nusa Kreatif"/></label><label className="field-label">Email pemilik<input value={email} readOnly/></label><button className="primary-button auth-submit" disabled={loading}>{loading ? 'Menyiapkan…' : 'Buat workspace'} <Icon name="arrow" size={15}/></button></form><div className="auth-toggle"><button onClick={onSignOut}>Keluar dari akun</button></div><div className="auth-footnote">Workspace ini hanya dapat diakses oleh akun pemilik saat ini.</div></div></div>
 }
 
 function InlineAlert({ kind, text, onClose }: { kind: 'error' | 'success'; text: string; onClose?: () => void }) {
